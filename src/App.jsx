@@ -261,30 +261,51 @@ const LoginPage = () => {
     );
 };
 
-
 // --- COMPONENTE: GESTIÓN DE EQUIPOS (EquipoManagement) ---
-
 const EquipoManagement = () => {
     const { getToken, isAdmin } = useAuth();
     const [equipos, setEquipos] = useState([]);
+    const [tiposEquipoData, setTiposEquipoData] = useState([]); 
     const [loading, setLoading] = useState(true);
     const [toast, setToast] = useState(null);
     const [error, setError] = useState(null);
     const [isFormVisible, setIsFormVisible] = useState(false);
     const [isEditMode, setIsEditMode] = useState(false);
     const [currentEquipo, setCurrentEquipo] = useState(null);
+
+    // 1. 🟢 CAMBIO A: Estado formData - AGREGAR NumeroEquipo
     const [formData, setFormData] = useState({
-        nombre: '',
-        tipo: '',
-        serial: '',
-        modelo: '',
-        estado: 'Disponible',
-        observaciones: ''
+        TipoNombre: '', 
+        Marca: '',      
+        Modelo: '',     
+        NumeroSerie: '', 
+        NumeroEquipo: '', // Nuevo campo: Código de Inventario
+        IP_DHCP: '',
+        FechaCompra: '',
+        Estado: 'Disponible', 
     });
 
-    const tiposEquipo = ['Laptop', 'Pc', 'Monitor', 'Impresora', 'Hanheld', 'Otro'];
     const estadosEquipo = ['Disponible', 'Asignado', 'En Mantenimiento', 'Baja'];
 
+    // Función para cargar los Tipos de Equipo (Versión SIN traducción, usando NombreTipo de BD)
+    const fetchTiposEquipo = useCallback(async () => {
+        try {
+            const response = await fetch(`${API_BASE_URL}/equipos/tipos`, {
+                headers: { 'Authorization': `Bearer ${getToken()}` },
+            });
+            const data = await response.json();
+            if (response.ok && data.data) {
+                // data.data es [ { TipoEquipoID: 1, NombreTipo: 'Laptop' }, ... ]
+                setTiposEquipoData(data.data);
+            } else {
+                console.error("Error al cargar tipos de equipo:", data.message);
+            }
+        } catch (err) {
+            console.error("Error de conexión al cargar tipos:", err);
+        }
+    }, [getToken]);
+
+    // Función para cargar la lista principal de equipos (incluye NumeroEquipo en la query del backend)
     const fetchEquipos = useCallback(async () => {
         setLoading(true);
         setError(null);
@@ -294,7 +315,7 @@ const EquipoManagement = () => {
             });
             const data = await response.json();
             if (response.ok) {
-                setEquipos(data.data || []);
+                setEquipos(data.data || []); 
             } else {
                 setError(data.message || 'Error al cargar los equipos.');
                 setToast({ message: data.message || 'Error al cargar equipos.', type: 'error' });
@@ -308,8 +329,9 @@ const EquipoManagement = () => {
     }, [getToken]);
 
     useEffect(() => {
+        fetchTiposEquipo(); 
         fetchEquipos();
-    }, [fetchEquipos]);
+    }, [fetchEquipos, fetchTiposEquipo]);
 
     const handleInputChange = (e) => {
         const { name, value } = e.target;
@@ -318,12 +340,14 @@ const EquipoManagement = () => {
 
     const resetForm = () => {
         setFormData({
-            nombre: '',
-            tipo: '',
-            serial: '',
-            modelo: '',
-            estado: 'Disponible',
-            observaciones: ''
+            TipoNombre: '',
+            Marca: '',
+            Modelo: '',
+            NumeroSerie: '',
+            NumeroEquipo: '', // Resetear el nuevo campo
+            IP_DHCP: '',
+            FechaCompra: '',
+            Estado: 'Disponible',
         });
         setCurrentEquipo(null);
         setIsEditMode(false);
@@ -332,16 +356,21 @@ const EquipoManagement = () => {
     const handleCreateUpdate = async (e) => {
         e.preventDefault();
         
-        // Simple validación de campos requeridos
-        if (!formData.nombre || !formData.tipo || !formData.serial || !formData.modelo) {
-            setToast({ message: 'Por favor, complete todos los campos obligatorios.', type: 'error' });
+        // 2. 🟢 CAMBIO B: Validación - INCLUIR NumeroEquipo
+        if (!formData.TipoNombre || !formData.Marca || !formData.NumeroSerie || !formData.NumeroEquipo) {
+            setToast({ message: 'El Tipo, la Marca, el Número de Serie y el Código de Inventario son obligatorios.', type: 'error' });
             return;
         }
 
         const url = isEditMode
-            ? `${API_BASE_URL}/equipos/${currentEquipo.equipoID}`
+            ? `${API_BASE_URL}/equipos/${currentEquipo.EquipoID}` 
             : `${API_BASE_URL}/equipos`;
         const method = isEditMode ? 'PUT' : 'POST';
+
+        const requestBody = {
+            ...formData,
+            FechaCompra: formData.FechaCompra || null, 
+        };
 
         try {
             const response = await fetch(url, {
@@ -350,7 +379,7 @@ const EquipoManagement = () => {
                     'Content-Type': 'application/json',
                     'Authorization': `Bearer ${getToken()}`,
                 },
-                body: JSON.stringify(formData),
+                body: JSON.stringify(requestBody),
             });
 
             const data = await response.json();
@@ -359,7 +388,7 @@ const EquipoManagement = () => {
                 setToast({ message: data.message, type: 'success' });
                 resetForm();
                 fetchEquipos();
-                setIsFormVisible(false); // Ocultar formulario al guardar exitosamente
+                setIsFormVisible(false);
             } else {
                 setToast({ message: data.message || `Error al ${isEditMode ? 'actualizar' : 'crear'} el equipo.`, type: 'error' });
             }
@@ -401,19 +430,21 @@ const EquipoManagement = () => {
         setIsEditMode(true);
         setIsFormVisible(true);
         setFormData({
-            nombre: equipo.nombre,
-            tipo: equipo.tipo,
-            serial: equipo.serial,
-            modelo: equipo.modelo,
-            estado: equipo.estado,
-            observaciones: equipo.observaciones || ''
+            TipoNombre: equipo.TipoEquipo || '',
+            Marca: equipo.Marca || '',
+            Modelo: equipo.Modelo || '',
+            NumeroSerie: equipo.NumeroSerie || '',
+            // 3. 🟢 CAMBIO C: Mapeo para edición - AGREGAR NumeroEquipo
+            NumeroEquipo: equipo.NumeroEquipo || '', 
+            IP_DHCP: equipo.IP_DHCP || '',
+            FechaCompra: equipo.FechaCompra ? new Date(equipo.FechaCompra).toISOString().split('T')[0] : '',
+            Estado: equipo.Estado || 'Disponible',
         });
     };
 
     const renderEquipoForm = () => (
         <div className="bg-white/5 p-6 rounded-lg shadow-xl mb-6 border border-cyan-400/20 backdrop-blur-sm">
             <div className="flex justify-between items-center mb-4">
-                {/* Título con color neón */}
                 <h3 className="text-xl font-semibold text-cyan-400">
                     {isEditMode ? 'Editar Equipo' : 'Crear Nuevo Equipo'}
                 </h3>
@@ -423,74 +454,120 @@ const EquipoManagement = () => {
             </div>
             <form onSubmit={handleCreateUpdate} className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 
-                {/* Nombre */}
+                {/* Tipo - Usa el endpoint /equipos/tipos (tiposEquipoData) */}
+               <div translate="no"> 
+                <label htmlFor="TipoNombre" className="block text-sm font-medium text-gray-300">
+                  Tipo *
+                   </label>
+                     <select
+                       name="TipoNombre"
+                        id="TipoNombre"
+                           required
+                             value={formData.TipoNombre}
+                                 onChange={handleInputChange}
+                                    className="mt-1 block w-full rounded-md border-cyan-500/50 shadow-sm focus:border-cyan-500 focus:ring-cyan-500 sm:text-sm p-2 bg-blue-900 text-white"
+                                >
+        <option value="" className="bg-gray-800 text-white">Seleccione un tipo</option>
+        {tiposEquipoData.map(tipo => ( 
+            <option 
+                key={tipo.TipoEquipoID} 
+                value={tipo.NombreTipo} 
+                className="bg-gray-800 text-white"
+            >
+                {tipo.NombreTipo}
+            </option>
+        ))}
+    </select>
+</div>
+                {/* Número de Serie (Serial) */}
                 <div>
-                    <label htmlFor="nombre" className="block text-sm font-medium text-gray-300">
-                        Nombre del  Equipo *
-                    </label>
-                    <input
-                        type="text"
-                        name="nombre"
-                        id="nombre"
-                        required
-                        value={formData.nombre}
-                        onChange={handleInputChange}
-                        // Estilo de input oscuro/neón
-                        className="mt-1 block w-full rounded-md border-cyan-500/50 shadow-sm focus:border-cyan-500 focus:ring-cyan-500 sm:text-sm p-2 bg-blue-900 text-white"
-                    />
-                </div>
-
-                {/* Tipo */}
-                <div>
-                    <label htmlFor="tipo" className="block text-sm font-medium text-gray-300">
-                        Tipo *
-                    </label>
-                    <select
-                        name="tipo"
-                        id="tipo"
-                        required
-                        value={formData.tipo}
-                        onChange={handleInputChange}
-                        // Estilo de select oscuro/neón
-                        className="mt-1 block w-full rounded-md border-cyan-500/50 shadow-sm focus:border-cyan-500 focus:ring-cyan-500 sm:text-sm p-2 bg-blue-900 text-white"
-                    >
-                        <option value="" className="bg-gray-800 text-white">Seleccione un tipo</option>
-                        {tiposEquipo.map(tipo => (
-                            <option key={tipo} value={tipo} className="bg-gray-800 text-white">{tipo}</option>
-                        ))}
-                    </select>
-                </div>
-
-                {/* Serial */}
-                <div>
-                    <label htmlFor="serial" className="block text-sm font-medium text-gray-300">
+                    <label htmlFor="NumeroSerie" className="block text-sm font-medium text-gray-300">
                         Número de Serie (Serial) *
                     </label>
                     <input
                         type="text"
-                        name="serial"
-                        id="serial"
+                        name="NumeroSerie"
+                        id="NumeroSerie"
                         required
-                        value={formData.serial}
+                        value={formData.NumeroSerie}
                         onChange={handleInputChange}
-                        // Estilo de input oscuro/neón
+                        className="mt-1 block w-full rounded-md border-cyan-500/50 shadow-sm focus:border-cyan-500 focus:ring-cyan-500 sm:text-sm p-2 bg-blue-900 text-white"
+                    />
+                </div>
+                
+                {/* 4. 🟢 CAMBIO D: Nuevo campo: Código de Inventario (NumeroEquipo) */}
+                <div>
+                    <label htmlFor="NumeroEquipo" className="block text-sm font-medium text-gray-300">
+                        Código de Inventario *
+                    </label>
+                    <input
+                        type="text"
+                        name="NumeroEquipo"
+                        id="NumeroEquipo"
+                        required
+                        value={formData.NumeroEquipo}
+                        onChange={handleInputChange}
+                        className="mt-1 block w-full rounded-md border-cyan-500/50 shadow-sm focus:border-cyan-500 focus:ring-cyan-500 sm:text-sm p-2 bg-blue-900 text-white"
+                    />
+                </div>
+
+                {/* Marca */}
+                <div>
+                    <label htmlFor="Marca" className="block text-sm font-medium text-gray-300">
+                        Marca *
+                    </label>
+                    <input
+                        type="text"
+                        name="Marca"
+                        id="Marca"
+                        required
+                        value={formData.Marca}
+                        onChange={handleInputChange}
                         className="mt-1 block w-full rounded-md border-cyan-500/50 shadow-sm focus:border-cyan-500 focus:ring-cyan-500 sm:text-sm p-2 bg-blue-900 text-white"
                     />
                 </div>
 
                 {/* Modelo */}
                 <div>
-                    <label htmlFor="modelo" className="block text-sm font-medium text-gray-300">
-                        Marca/Modelo *
+                    <label htmlFor="Modelo" className="block text-sm font-medium text-gray-300">
+                        Modelo
                     </label>
                     <input
                         type="text"
-                        name="modelo"
-                        id="modelo"
-                        required
-                        value={formData.modelo}
+                        name="Modelo"
+                        id="Modelo"
+                        value={formData.Modelo}
                         onChange={handleInputChange}
-                        // Estilo de input oscuro/neón
+                        className="mt-1 block w-full rounded-md border-cyan-500/50 shadow-sm focus:border-cyan-500 focus:ring-cyan-500 sm:text-sm p-2 bg-blue-900 text-white"
+                    />
+                </div>
+
+                {/* IP/DHCP */}
+                <div>
+                    <label htmlFor="IP_DHCP" className="block text-sm font-medium text-gray-300">
+                        IP/DHCP
+                    </label>
+                    <input
+                        type="text"
+                        name="IP_DHCP"
+                        id="IP_DHCP"
+                        value={formData.IP_DHCP}
+                        onChange={handleInputChange}
+                        className="mt-1 block w-full rounded-md border-cyan-500/50 shadow-sm focus:border-cyan-500 focus:ring-cyan-500 sm:text-sm p-2 bg-blue-900 text-white"
+                    />
+                </div>
+
+                {/* Fecha de Compra */}
+                <div>
+                    <label htmlFor="FechaCompra" className="block text-sm font-medium text-gray-300">
+                        Fecha de Compra
+                    </label>
+                    <input
+                        type="date"
+                        name="FechaCompra"
+                        id="FechaCompra"
+                        value={formData.FechaCompra}
+                        onChange={handleInputChange}
                         className="mt-1 block w-full rounded-md border-cyan-500/50 shadow-sm focus:border-cyan-500 focus:ring-cyan-500 sm:text-sm p-2 bg-blue-900 text-white"
                     />
                 </div>
@@ -498,15 +575,14 @@ const EquipoManagement = () => {
                 {/* Estado (Solo en Edición) */}
                 {isEditMode && (
                     <div>
-                        <label htmlFor="estado" className="block text-sm font-medium text-gray-300">
+                        <label htmlFor="Estado" className="block text-sm font-medium text-gray-300">
                             Estado
                         </label>
                         <select
-                            name="estado"
-                            id="estado"
-                            value={formData.estado}
+                            name="Estado"
+                            id="Estado"
+                            value={formData.Estado}
                             onChange={handleInputChange}
-                            // Estilo de select oscuro/neón
                             className="mt-1 block w-full rounded-md border-cyan-500/50 shadow-sm focus:border-cyan-500 focus:ring-cyan-500 sm:text-sm p-2 bg-blue-900 text-white"
                         >
                             {estadosEquipo.map(estado => (
@@ -516,27 +592,10 @@ const EquipoManagement = () => {
                     </div>
                 )}
                 
-                {/* Observaciones (span 2 columns) */}
-                <div className="md:col-span-2">
-                    <label htmlFor="observaciones" className="block text-sm font-medium text-gray-300">
-                        Observaciones
-                    </label>
-                    <textarea
-                        name="observaciones"
-                        id="observaciones"
-                        rows="3"
-                        value={formData.observaciones}
-                        onChange={handleInputChange}
-                        // Estilo de textarea oscuro/neón
-                        className="mt-1 block w-full rounded-md border-cyan-500/50 shadow-sm focus:border-cyan-500 focus:ring-cyan-500 sm:text-sm p-2 bg-blue-900 text-white"
-                    ></textarea>
-                </div>
-
                 {/* Botón de Submit (color neón) */}
                 <div className="md:col-span-2 mt-4">
                     <button
                         type="submit"
-                        // CAMBIO DE COLOR: Botón primario a cian
                         className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-cyan-600 hover:bg-cyan-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-cyan-500"
                     >
                         {isEditMode ? <><Pencil className="w-4 h-4 mr-2" /> Guardar Cambios</> : <><Plus className="w-4 h-4 mr-2" /> Registrar Equipo</>}
@@ -550,12 +609,10 @@ const EquipoManagement = () => {
     if (error) return <div className="p-4 text-red-700 bg-red-100 rounded-lg"><AlertTriangle className="inline w-5 h-5 mr-2"/> Error al cargar: {error}</div>;
 
     return (
-        /* FONDO OSCURO DEL MÓDULO */
         <div className="p-4 md:p-8 bg-gray-900 min-h-full text-white">
             {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
             
             <div className="flex justify-between items-center mb-6">
-                {/* Título con color neón */}
                 <h2 className="text-3xl font-bold text-white flex items-center">
                     <HardDrive className="w-7 h-7 mr-3 text-cyan-400" />
                     Gestión de Equipos
@@ -563,7 +620,6 @@ const EquipoManagement = () => {
                 <div className="flex space-x-2">
                     <button
                         onClick={fetchEquipos}
-                        // Botón de actualización gris-oscuro
                         className="flex items-center px-4 py-2 border border-gray-700 rounded-md shadow-sm text-sm font-medium text-gray-300 bg-gray-800 hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-cyan-500"
                     >
                         <RefreshCw className="w-4 h-4 mr-2" /> Actualizar
@@ -571,11 +627,9 @@ const EquipoManagement = () => {
                     {isAdmin && (
                         <button
                             onClick={() => {
-                                // Alternar visibilidad y limpiar/preparar formulario si se va a mostrar
                                 if (!isFormVisible) resetForm();
                                 setIsFormVisible(!isFormVisible);
                             }}
-                            // Botón primario a color neón (bg-cyan-600)
                             className="flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-cyan-600 hover:bg-cyan-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-cyan-500"
                         >
                             <Plus className="w-4 h-4 mr-2" />
@@ -596,83 +650,58 @@ const EquipoManagement = () => {
                 </div>
             )}
 
-            {/* Tabla de Equipos: Fondo oscuro semi-transparente */}
+            {/* Tabla de Equipos */}
             {equipos.length > 0 && (
                 <div className="bg-white/5 shadow-xl rounded-lg overflow-hidden border border-cyan-400/20 backdrop-blur-sm">
                     <div className="overflow-x-auto">
                         <table className="min-w-full divide-y divide-gray-700">
-                            {/* Encabezado de la tabla oscuro */}
                             <thead className="bg-blue-900/50">
                                 <tr>
-                                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-cyan-300 uppercase tracking-wider">Nombre</th>
-                                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-cyan-300 uppercase tracking-wider">Tipo / Modelo</th>
-                                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-cyan-300 uppercase tracking-wider">Serial</th>
+                                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-cyan-300 uppercase tracking-wider">ID</th>
+                                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-cyan-300 uppercase tracking-wider">Cod. Inventario</th> {/* 5. 🟢 CAMBIO E: Columna en la tabla */}
+                                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-cyan-300 uppercase tracking-wider">Marca/Modelo</th>
+                                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-cyan-300 uppercase tracking-wider">Tipo</th>
+                                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-cyan-300 uppercase tracking-wider">Número Serie</th>
                                     <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-cyan-300 uppercase tracking-wider">Estado</th>
-                                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-cyan-300 uppercase tracking-wider">Asignado a</th>
                                     <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-cyan-300 uppercase tracking-wider">Acciones</th>
                                 </tr>
                             </thead>
-                            {/* Cuerpo de la tabla oscuro */}
                             <tbody className="bg-gray-800/20 divide-y divide-gray-700">
                                 {equipos.map((equipo) => (
-                                    <tr key={equipo.equipoID} className="hover:bg-gray-800/50 transition-colors duration-150">
-                                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-white">{equipo.nombre}</td>
+                                    <tr key={equipo.EquipoID} className="hover:bg-gray-800/50 transition-colors duration-150">
+                                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-white">{equipo.EquipoID}</td>
+                                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-white">{equipo.NumeroEquipo}</td> {/* 6. 🟢 CAMBIO F: Mostrar el valor */}
                                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-400">
-                                            {equipo.tipo} <span className="text-gray-500">/</span> {equipo.modelo}
+                                            <span className="font-semibold text-white">{equipo.Marca}</span> <span className="text-gray-500">/</span> {equipo.Modelo}
                                         </td>
-                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-400">{equipo.serial}</td>
+                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-400">{equipo.TipoEquipo}</td>
+                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-400">{equipo.NumeroSerie}</td>
                                         <td className="px-6 py-4 whitespace-nowrap">
                                             <span className={`px-3 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                                                // Colores neón ajustados para fondo oscuro
-                                                equipo.estado === 'Disponible' ? 'bg-green-700/30 text-green-400' :
-                                                equipo.estado === 'Asignado' ? 'bg-yellow-700/30 text-yellow-400' :
-                                                equipo.estado === 'En Mantenimiento' ? 'bg-cyan-700/30 text-cyan-400' :
-                                                'bg-red-700/30 text-red-400'
+                                                equipo.Estado === 'Disponible' ? 'bg-green-700/30 text-green-400' :
+                                                equipo.Estado === 'Asignado' ? 'bg-red-700/30 text-red-400' :
+                                                'bg-yellow-700/30 text-yellow-400' 
                                             }`}>
-                                                {equipo.estado}
+                                                {equipo.Estado}
                                             </span>
                                         </td>
-                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-300">
-                                            {equipo.asignadoA ? equipo.asignadoA : 'Ninguno'}
-                                        </td>
-                                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                                            <div className="flex space-x-2">
-                                                {/* Botón de Asignar/Liberar - color neón */}
-                                                <button 
-                                                    title={equipo.estado === 'Asignado' ? 'Liberar Equipo' : 'Asignar Equipo'}
-                                                    className={`p-2 rounded-full text-white transition-colors duration-150 ${
-                                                        equipo.estado === 'Asignado' 
-                                                            ? 'bg-red-600 hover:bg-red-700' 
-                                                            : 'bg-cyan-600 hover:bg-cyan-700'
-                                                        } disabled:opacity-50`}
-                                                    disabled={!isAdmin} // Solo Admin puede asignar/liberar
-                                                    onClick={() => setToast({ message: 'Funcionalidad de Asignación/Liberación pendiente de implementar.', type: 'error' })}
-                                                >
-                                                    {equipo.estado === 'Asignado' ? <CornerUpLeft className="w-4 h-4" /> : <ArrowUpRight className="w-4 h-4" />}
-                                                </button>
-                                                
-                                                {/* Botón de Editar - color neón */}
-                                                {isAdmin && (
-                                                    <button 
-                                                        onClick={() => handleEditClick(equipo)}
-                                                        className="text-cyan-400 hover:text-white p-2 rounded-full hover:bg-cyan-800/50 transition-colors duration-150"
-                                                        title="Editar Equipo"
-                                                    >
+                                        <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                                            {isAdmin && (
+                                                <div className="flex space-x-2">
+                                                    <button onClick={() => handleEditClick(equipo)} className="text-cyan-400 hover:text-cyan-600 p-1 rounded hover:bg-cyan-900/50 transition-colors" title="Editar">
                                                         <Pencil className="w-4 h-4" />
                                                     </button>
-                                                )}
-
-                                                {/* Botón de Eliminar */}
-                                                {isAdmin && (
-                                                    <button 
-                                                        onClick={() => handleDelete(equipo.equipoID)}
-                                                        className="text-red-400 hover:text-white p-2 rounded-full hover:bg-red-800/50 transition-colors duration-150"
-                                                        title="Eliminar Equipo"
-                                                    >
+                                                    <button onClick={() => handleDelete(equipo.EquipoID)} className="text-red-400 hover:text-red-600 p-1 rounded hover:bg-red-900/50 transition-colors" title="Eliminar">
                                                         <Trash2 className="w-4 h-4" />
                                                     </button>
-                                                )}
-                                            </div>
+                                                    {/* Botón Asignar/Liberar - (Pendiente de implementar lógica completa) */}
+                                                    <button onClick={() => alert(`Acción pendiente para ${equipo.Estado === 'Disponible' ? 'Asignar' : 'Liberar'} ${equipo.EquipoID}`)} 
+                                                        className={`p-1 rounded transition-colors ${equipo.Estado === 'Disponible' ? 'text-green-400 hover:text-green-600 hover:bg-green-900/50' : 'text-orange-400 hover:text-orange-600 hover:bg-orange-900/50'}`} 
+                                                        title={equipo.Estado === 'Disponible' ? 'Asignar' : 'Liberar'}>
+                                                        <ArrowUpRight className="w-4 h-4" />
+                                                    </button>
+                                                </div>
+                                            )}
                                         </td>
                                     </tr>
                                 ))}
@@ -685,78 +714,72 @@ const EquipoManagement = () => {
     );
 };
 
+// --- COMPONENTE DE NAVEGACIÓN LATERAL ---
 
-// --- COMPONENTE DE BARRA LATERAL (SIDEBAR) ---
-const Sidebar = ({ currentView, setCurrentView, isMenuOpen, setIsMenuOpen, isAdmin, logout }) => {
+const Sidebar = ({ currentView, setCurrentView, logout, isAdmin }) => {
+    const [isOpen, setIsOpen] = useState(false);
+
     const navItems = [
-        { name: 'Dashboard', icon: LayoutDashboard, view: 'dashboard', adminOnly: false },
-        { name: 'Equipos', icon: HardDrive, view: 'equipos', adminOnly: false },
-        { name: 'Usuarios', icon: Users, view: 'usuarios', adminOnly: true },
-        { name: 'Asignaciones', icon: ListOrdered, view: 'asignaciones', adminOnly: false },
-        { name: 'Mantenimiento', icon: Wrench, view: 'mantenimiento', adminOnly: false },
-        { name: 'Configuración', icon: Settings, view: 'settings', adminOnly: true },
+        { name: 'Dashboard', icon: LayoutDashboard, view: 'dashboard' },
+        { name: 'Gestión de Equipos', icon: HardDrive, view: 'equipos' },
+        { name: 'Asignaciones ', icon: ClipboardList, view: 'asignaciones' },
     ];
+    
+    // Items solo para Admin
+    const adminItems = [
+        { name: 'Usuarios (WIP)', icon: Users, view: 'usuarios' },
+        { name: 'Configuración (WIP)', icon: Settings, view: 'settings' },
+    ];
+
+    const allNavItems = isAdmin ? [...navItems, ...adminItems] : navItems;
 
     return (
         <>
-            {/* Overlay Oscuro para Móvil */}
-            <div 
-                className={`fixed inset-0 bg-gray-900/50 z-20 md:hidden ${isMenuOpen ? 'block' : 'hidden'}`}
-                onClick={() => setIsMenuOpen(false)}
-            ></div>
-
-            {/* Contenedor de la Barra Lateral */}
-            <div 
-                className={`fixed inset-y-0 left-0 z-30 transform ${isMenuOpen ? 'translate-x-0' : '-translate-x-full'} 
-                md:relative md:translate-x-0 transition-transform duration-300 ease-in-out
-                w-64 bg-blue-950 shadow-2xl flex flex-col justify-between border-r border-cyan-400/20`}
+            {/* Botón de menú para móvil */}
+            <button 
+                className="lg:hidden fixed top-4 left-4 z-50 p-2 text-white bg-blue-900/80 rounded-lg backdrop-blur-sm"
+                onClick={() => setIsOpen(!isOpen)}
             >
-                {/* Cabecera y Navegación */}
-                <div className="flex flex-col">
-                    {/* Logo/Título */}
-                    <div className="p-4 flex justify-between items-center border-b border-cyan-400/20">
-                        <h1 className="text-2xl font-extrabold text-cyan-400 tracking-wider">
-                            IT <span className="text-white">Manager</span>
-                        </h1>
-                        <button onClick={() => setIsMenuOpen(false)} className="md:hidden text-white hover:text-cyan-400">
-                            <X className="w-6 h-6" />
-                        </button>
-                    </div>
+                {isOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
+            </button>
+            
+            {/* Overlay para móvil */}
+            {isOpen && <div className="fixed inset-0 bg-black/50 z-40 lg:hidden" onClick={() => setIsOpen(false)}></div>}
 
-                    {/* Links de Navegación */}
-                    <nav className="flex-1 p-2 space-y-2 mt-4">
-                        {navItems.map((item) => {
-                            if (item.adminOnly && !isAdmin) return null;
-
-                            const isActive = currentView === item.view;
-                            const activeClasses = 'bg-cyan-600 text-white shadow-lg shadow-cyan-500/30';
-                            const inactiveClasses = 'text-gray-300 hover:bg-blue-800 hover:text-cyan-300';
-
-                            return (
-                                <a
-                                    key={item.view}
-                                    href="#"
-                                    onClick={() => {
-                                        setCurrentView(item.view);
-                                        setIsMenuOpen(false);
-                                    }}
-                                    className={`flex items-center p-3 rounded-xl font-semibold transition-all duration-200 ${isActive ? activeClasses : inactiveClasses}`}
-                                >
-                                    <item.icon className="w-5 h-5 mr-3" />
-                                    {item.name}
-                                </a>
-                            );
-                        })}
-                    </nav>
+            {/* Sidebar real */}
+            <div className={`fixed inset-y-0 left-0 transform ${isOpen ? 'translate-x-0' : '-translate-x-full'} lg:translate-x-0 transition-transform duration-300 ease-in-out w-64 bg-blue-950 shadow-xl z-50 border-r border-cyan-400/20 flex flex-col`}>
+                <div className="p-6 flex items-center justify-center border-b border-cyan-400/10">
+                    <Wrench className="w-8 h-8 text-cyan-400 mr-2" />
+                    <h1 className="text-2xl font-bold text-white">IT Manager</h1>
                 </div>
 
-                {/* Botón de Logout */}
-                <div className="p-4 border-t border-cyan-400/20">
+                <nav className="flex-grow p-4 space-y-2 overflow-y-auto">
+                    {allNavItems.map((item) => (
+                        <a
+                            key={item.view}
+                            href="#"
+                            onClick={() => {
+                                setCurrentView(item.view);
+                                setIsOpen(false); // Cerrar en móvil
+                            }}
+                            className={`flex items-center px-4 py-3 rounded-lg transition-colors duration-200 ${
+                                currentView === item.view
+                                    ? 'bg-cyan-600 text-white shadow-lg'
+                                    : 'text-gray-300 hover:bg-blue-900 hover:text-cyan-300'
+                            }`}
+                        >
+                            <item.icon className="w-5 h-5 mr-3" />
+                            <span className="font-medium">{item.name}</span>
+                        </a>
+                    ))}
+                </nav>
+
+                <div className="p-4 border-t border-cyan-400/10">
                     <button
                         onClick={logout}
-                        className="w-full flex items-center p-3 rounded-xl font-semibold text-red-400 bg-blue-900 hover:bg-red-900/50 transition-colors duration-200"
+                        className="w-full flex items-center justify-center px-4 py-3 rounded-lg text-white bg-red-700 hover:bg-red-800 transition-colors duration-200"
                     >
-                        <LogIn className="w-5 h-5 mr-3" />
+                        <LogIn className="w-5 h-5 mr-3 rotate-180" />
                         Cerrar Sesión
                     </button>
                 </div>
@@ -765,109 +788,62 @@ const Sidebar = ({ currentView, setCurrentView, isMenuOpen, setIsMenuOpen, isAdm
     );
 };
 
-// --- COMPONENTE DE ENCABEZADO (HEADER) ---
-const Header = ({ user, setIsMenuOpen, isAdmin, logout }) => {
-    return (
-        <header className="bg-gray-800/80 backdrop-blur-sm p-4 sticky top-0 z-10 shadow-lg border-b border-cyan-400/20">
-            <div className="flex justify-between items-center">
-                {/* Botón de Menú para Móvil */}
-                <button 
-                    onClick={() => setIsMenuOpen(true)}
-                    className="md:hidden text-cyan-400 hover:text-white transition-colors"
-                >
-                    <Menu className="w-6 h-6" />
-                </button>
-                
-                {/* Título - Visible solo en móvil/pequeño */}
-                <h2 className="text-xl font-bold text-white md:hidden">IT Manager</h2>
-
-                {/* Información de Usuario y Acciones */}
-                <div className="flex items-center space-x-4 ml-auto">
-                    <div className="text-right hidden sm:block">
-                        <p className="text-white font-semibold">{user?.nombre}</p>
-                        <p className={`text-sm font-medium ${isAdmin ? 'text-yellow-400' : 'text-cyan-300'}`}>{user?.rol}</p>
-                    </div>
-                    <div className="w-10 h-10 rounded-full bg-cyan-600 flex items-center justify-center text-white font-bold text-lg border-2 border-cyan-400">
-                        {user?.nombre.charAt(0).toUpperCase()}
-                    </div>
-                    {/* Botón de Logout solo para escritorio/grande */}
-                    <button
-                        onClick={logout}
-                        title="Cerrar Sesión"
-                        className="hidden sm:block p-2 rounded-full text-red-400 hover:bg-gray-700 transition-colors"
-                    >
-                        <LogIn className="w-5 h-5" />
-                    </button>
-                </div>
-            </div>
-        </header>
-    );
-};
-
 // --- COMPONENTE PRINCIPAL DE LA APLICACIÓN ---
-const AppContent = () => {
-    const { user, loading, logout, isAdmin } = useAuth();
-    const [currentView, setCurrentView] = useState('dashboard');
-    const [isMenuOpen, setIsMenuOpen] = useState(false);
 
-    // Mapeo de vistas a componentes
+const AppContent = () => {
+    const { user, logout } = useAuth();
+    const [currentView, setCurrentView] = useState('dashboard');
+    const { isAdmin } = useAuth(); // Para pasar a Sidebar
+
     const renderView = () => {
         switch (currentView) {
             case 'dashboard':
                 return <WelcomeDashboard user={user} />;
             case 'equipos':
                 return <EquipoManagement />;
-            case 'usuarios':
-                return isAdmin ? <PlaceholderModule title="Gestión de Usuarios" description="Administra cuentas de usuario, roles y permisos." icon={Users} /> : <PlaceholderModule title="Acceso Denegado" description="Necesitas ser Administrador para acceder a esta sección." icon={Shield} />;
             case 'asignaciones':
-                return <PlaceholderModule title="Historial de Asignaciones" description="Revisa qué equipo está asignado a cada usuario y cuándo." icon={ListOrdered} />;
-            case 'mantenimiento':
-                return <PlaceholderModule title="Gestión de Mantenimiento" description="Programa y registra el mantenimiento de los equipos." icon={Wrench} />;
+                return <PlaceholderModule title="Gestión de Asignaciones" description="Aquí podrás asignar, liberar y ver el historial de equipos." icon={ClipboardList} />;
+            case 'usuarios':
+                return <PlaceholderModule title="Gestión de Usuarios" description="Administración de cuentas de personal y roles." icon={Users} />;
             case 'settings':
-                return isAdmin ? <PlaceholderModule title="Configuración del Sistema" description="Ajustes avanzados de la aplicación y el API." icon={Settings} /> : <PlaceholderModule title="Acceso Denegado" description="Necesitas ser Administrador para acceder a esta sección." icon={Shield} />;
+                return <PlaceholderModule title="Configuración del Sistema" description="Ajustes de la aplicación y mantenimiento de catálogos." icon={Settings} />;
             default:
                 return <WelcomeDashboard user={user} />;
         }
     };
 
-    if (loading) return <LoadingSpinner />;
-
-    if (!user) {
-        return <LoginPage />;
-    }
-
     return (
-        <div className="flex min-h-screen bg-gray-900 font-sans">
-            <Sidebar 
-                currentView={currentView} 
-                setCurrentView={setCurrentView} 
-                isMenuOpen={isMenuOpen} 
-                setIsMenuOpen={setIsMenuOpen}
-                isAdmin={isAdmin}
-                logout={logout}
-            />
-
-            <div className="flex-1 flex flex-col overflow-hidden">
-                <Header 
-                    user={user} 
-                    setIsMenuOpen={setIsMenuOpen} 
-                    isAdmin={isAdmin}
-                    logout={logout}
-                />
-                
-                <main className="flex-1 overflow-x-hidden overflow-y-auto bg-gray-900">
-                    {/* El contenido de cada módulo se renderiza aquí */}
-                    {renderView()}
-                </main>
+        <div className="flex min-h-screen bg-gray-900">
+            <Sidebar currentView={currentView} setCurrentView={setCurrentView} logout={logout} isAdmin={isAdmin} />
+            <div className="flex-grow lg:ml-64 p-4 lg:p-8">
+                {renderView()}
             </div>
         </div>
     );
 };
 
-const App = () => (
-    <AuthProvider>
-        <AppContent />
-    </AuthProvider>
-);
+// --- COMPONENTE RAÍZ ---
+
+const App = () => {
+    return (
+        <AuthProvider>
+            <AppWrapper />
+        </AuthProvider>
+    );
+};
+
+const AppWrapper = () => {
+    const { user, loading } = useAuth();
+
+    if (loading) {
+        return <LoadingSpinner />;
+    }
+
+    if (!user) {
+        return <LoginPage />;
+    }
+
+    return <AppContent />;
+};
 
 export default App;
